@@ -68,7 +68,9 @@ stages:
               azureSubscription: azure-service-connection
               scriptType: bash
               scriptLocation: inlineScript
+              addSpnToEnvironment: true
               inlineScript: |
+                export TF_VAR_subscription_id="$(az account show --query id -o tsv)"
                 terraform init
                 terraform plan \
                   -var-file="envs/${{ parameters.environment }}/terraform.tfvars" \
@@ -109,7 +111,9 @@ stages:
                     azureSubscription: azure-service-connection
                     scriptType: bash
                     scriptLocation: inlineScript
+                    addSpnToEnvironment: true
                     inlineScript: |
+                      export TF_VAR_subscription_id="$(az account show --query id -o tsv)"
                       terraform init
                       terraform apply -auto-approve tfplan
                     workingDirectory: $(WORKING_DIR)

@@ -18,6 +18,7 @@ override.tf.json
 .env
 .env.*
 terraform.tfvars
+envs/*/terraform.tfvars
 !envs/*/terraform.tfvars.example
 
 # Python
