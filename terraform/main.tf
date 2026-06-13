@@ -21,7 +21,7 @@ provider "azurerm" {
   subscription_id = var.subscription_id
 }
 
-resource "azurerm_log_analytics_workspace" "this" {
+resource "azurerm_log_analytics_workspace" "law" {
   name                = "${var.prefix}-law"
   location            = var.location
   resource_group_name = module.networking.resource_group_name
@@ -44,7 +44,7 @@ module "aks" {
   location                   = var.location
   resource_group_name        = module.networking.resource_group_name
   aks_subnet_id              = module.networking.aks_subnet_id
-  log_analytics_workspace_id = azurerm_log_analytics_workspace.this.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.law.id
   kubernetes_version         = var.kubernetes_version
   system_node_count          = var.system_node_count
   user_node_count            = var.user_node_count

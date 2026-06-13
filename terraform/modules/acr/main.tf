@@ -1,4 +1,4 @@
-resource "azurerm_container_registry" "this" {
+resource "azurerm_container_registry" "acr" {
   name                = var.acr_name
   resource_group_name = var.resource_group_name
   location            = var.location
@@ -8,7 +8,7 @@ resource "azurerm_container_registry" "this" {
 }
 
 resource "azurerm_role_assignment" "aks_acr_pull" {
-  scope                = azurerm_container_registry.this.id
+  scope                = azurerm_container_registry.acr.id
   role_definition_name = "AcrPull"
   principal_id         = var.aks_kubelet_identity_object_id
 }

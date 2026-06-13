@@ -1,4 +1,4 @@
-resource "azurerm_kubernetes_cluster" "this" {
+resource "azurerm_kubernetes_cluster" "aks_cluster" {
   name                = "${var.prefix}-aks"
   location            = var.location
   resource_group_name = var.resource_group_name
@@ -46,9 +46,9 @@ resource "azurerm_kubernetes_cluster" "this" {
   }
 }
 
-resource "azurerm_kubernetes_cluster_node_pool" "user" {
+resource "azurerm_kubernetes_cluster_node_pool" "user_pool" {
   name                  = "user"
-  kubernetes_cluster_id = azurerm_kubernetes_cluster.this.id
+  kubernetes_cluster_id = azurerm_kubernetes_cluster.aks_cluster.id
   vm_size               = var.user_vm_size
   node_count            = var.user_node_count
   vnet_subnet_id        = var.aks_subnet_id
@@ -61,9 +61,9 @@ resource "azurerm_kubernetes_cluster_node_pool" "user" {
   }
 }
 
-resource "azurerm_monitor_diagnostic_setting" "aks" {
+resource "azurerm_monitor_diagnostic_setting" "aks_diag" {
   name                       = "${var.prefix}-aks-diag"
-  target_resource_id         = azurerm_kubernetes_cluster.this.id
+  target_resource_id         = azurerm_kubernetes_cluster.aks_cluster.id
   log_analytics_workspace_id = var.log_analytics_workspace_id
 
   enabled_log {
