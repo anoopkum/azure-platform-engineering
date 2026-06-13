@@ -87,6 +87,50 @@ Error: Provider produced inconsistent result after apply
 
 ## GitHub Actions / OIDC
 
+### Error: `AADSTS700213: No matching federated identity record` for `environment:dev`
+```
+Error: AADSTS700213: No matching federated identity record found for presented assertion
+subject 'repo:anoopkum/azure-platform-engineering:environment:dev'.
+```
+**Cause:** Jobs that specify `environment: dev` in the workflow emit a JWT with subject `repo:<org>/<repo>:environment:dev`, not `ref:refs/heads/main`. A separate federated credential is required for each subject pattern.
+**Fix:** Add a federated credential for the environment subject:
+```bash
+az ad app federated-credential create \
+  --id <AZURE_CLIENT_ID> \
+  --parameters '{
+    "name": "github-env-dev",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subject": "repo:anoopkum/azure-platform-engineering:environment:dev",
+    "audiences": ["api://AzureADTokenExchange"]
+  }'
+```
+Three federated credentials are required in total:
+| Name | Subject |
+|---|---|
+| `github-main` | `repo:anoopkum/azure-platform-engineering:ref:refs/heads/main` |
+| `github-pull-req` | `repo:anoopkum/azure-platform-engineering:pull_request` |
+| `github-env-dev` | `repo:anoopkum/azure-platform-engineering:environment:dev` |
+
+---
+
+### Error: `Error building ARM Config: Authenticating using the Azure CLI is only supported as a User`
+```
+Error: Error building ARM Config: Authenticating using the Azure CLI is only
+supported as a User (not a Service Principal).
+```
+**Cause:** Using `azure/login@v2` action and then running Terraform. The azurerm provider cannot use Azure CLI authentication when running as a Service Principal — it requires `ARM_` environment variables set directly.
+**Fix:** Remove the `azure/login@v2` step and set `ARM_` vars at the workflow `env` level instead:
+```yaml
+env:
+  ARM_USE_OIDC: "true"
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+```
+The provider requests a GitHub OIDC token directly using `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, which GitHub injects automatically when `permissions.id-token: write` is set.
+
+---
+
 ### Error: `AADSTS70021: No matching federated identity record found`
 ```
 Error: AADSTS70021: No matching federated identity record found for presented assertion.
@@ -121,6 +165,123 @@ permissions:
 ---
 
 ## AKS
+
+### Error: `K8sVersionNotSupported` — version is LTS-only
+```
+Error: creating Kubernetes Cluster: unexpected status 400 (400 Bad Request)
+"code": "K8sVersionNotSupported"
+"message": "Managed cluster ape-dev-aks is on version 1.31.x, which is only
+available for Long-Term Support (LTS)..."
+```
+**Cause:** In some regions (e.g. `uksouth`), older patch versions of Kubernetes are restricted to LTS/Premium tier clusters only. Using them on a Standard tier cluster is blocked by the API.
+**Fix:** Check the available non-LTS versions in your region and use the one with `KubernetesOfficial` support plan:
+```bash
+az aks get-versions --location uksouth --output json | python3 -c "
+import json,sys
+for v in json.load(sys.stdin)['values']:
+    plans = v.get('capabilities',{}).get('supportPlan',[])
+    if 'KubernetesOfficial' in plans:
+        print(v['version'], plans)
+"
+```
+Update `kubernetes_version` in `terraform/envs/dev/terraform.tfvars` and `terraform/modules/aks/variables.tf` to the supported version (currently `1.36`).
+
+---
+
+### Error: `azure_active_directory_role_based_access_control` — Missing required argument
+```
+Error: Missing required argument
+"azure_active_directory_role_based_access_control.0.admin_group_object_ids":
+one of admin_group_object_ids, tenant_id must be specified
+```
+**Cause:** In azurerm `~> 4.0`, the `azure_active_directory_role_based_access_control` block requires either `admin_group_object_ids` or `tenant_id`. The `managed` and `azure_rbac_enabled` fields alone are no longer sufficient. Azure RBAC is always enabled by default in v4.
+**Fix:** Remove the entire `azure_active_directory_role_based_access_control` block from `modules/aks/main.tf`. Azure RBAC is on by default — the block is only needed when restricting access to specific AAD groups.
+
+**History of this error across provider versions:**
+
+| Provider | Config | Result |
+|---|---|---|
+| `~> 3.100` | `managed=true` + `azure_rbac_enabled=true` | AKS API rejects `managed` as deprecated |
+| `~> 3.100` | `azure_rbac_enabled=true` only | Provider requires `managed` as part of `one of` |
+| `~> 4.0` | `azure_rbac_enabled=true` only | Provider requires `admin_group_object_ids` or `tenant_id` |
+| `~> 4.0` | Block removed entirely | ✅ Works — Azure RBAC on by default |
+
+---
+
+### Error: `ServiceCidrOverlapExistingSubnetsCidr`
+```
+Error: creating Kubernetes Cluster: unexpected status 400 (400 Bad Request)
+"code": "ServiceCidrOverlapExistingSubnetsCidr"
+"message": "The specified service CIDR 10.0.0.0/16 is conflicted with an
+existing subnet CIDR 10.0.1.0/24."
+```
+**Cause:** AKS defaults `service_cidr` to `10.0.0.0/16` which conflicts with the VNet address space (also `10.0.0.0/16`). The service CIDR must not overlap with any subnet in the VNet.
+**Fix:** Explicitly set non-overlapping CIDRs in the `network_profile` block in `modules/aks/main.tf`:
+```hcl
+network_profile {
+  network_plugin    = "azure"
+  network_policy    = "calico"
+  load_balancer_sku = "standard"
+  outbound_type     = "loadBalancer"
+  service_cidr      = "172.16.0.0/16"
+  dns_service_ip    = "172.16.0.10"
+}
+```
+CIDR allocation for this project:
+| Range | Purpose |
+|---|---|
+| `10.0.0.0/16` | VNet address space |
+| `10.0.1.0/24` | AKS nodes subnet |
+| `10.0.2.0/24` | ADO agents subnet |
+| `172.16.0.0/16` | Kubernetes service CIDR |
+| `172.16.0.10` | CoreDNS service IP |
+
+---
+
+### Error: `StorageAccountAlreadyTaken` when creating Terraform state backend
+```
+(StorageAccountAlreadyTaken) The storage account named tfstatedev is already taken.
+```
+**Cause:** Azure storage account names are globally unique across all subscriptions. A generic name like `tfstatedev` is already taken.
+**Fix:** Use a unique name incorporating your subscription ID suffix:
+```bash
+az storage account create \
+  --name tfstateape27320543dev \
+  --resource-group tfstate-rg \
+  --sku Standard_LRS \
+  --allow-blob-public-access false
+```
+Update the storage account name in `terraform/envs/dev/backend.conf`.
+
+---
+
+### Error: `Terraform exited with code 3` on `terraform fmt -check`
+```
+modules/aks/main.tf
+Error: Terraform exited with code 3.
+```
+**Cause:** `terraform fmt` found formatting inconsistencies (misaligned `=` signs, wrong indentation). Exit code 3 means files need reformatting.
+**Fix:** Run `terraform fmt -recursive` locally before pushing:
+```bash
+cd terraform && terraform fmt -recursive
+```
+Then commit the formatted files. The CI `fmt -check` step will pass on the next push.
+
+---
+
+### Error: Variable interpolation in Terraform backend block
+```
+Error: Variables not allowed
+Variables may not be used here.
+```
+**Cause:** Terraform backend blocks do not support variable interpolation (`${var.env}`). Backend configuration is parsed before variables are available.
+**Fix:** Use a partial backend config file per environment, passed via `-backend-config` at init time:
+```bash
+terraform init -backend-config="envs/dev/backend.conf"
+```
+Where `envs/dev/backend.conf` contains just `storage_account_name = "tfstateape27320543dev"`.
+
+---
 
 ### Error: `Evicted` pods after node drain
 ```
