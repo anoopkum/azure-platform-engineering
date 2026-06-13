@@ -30,6 +30,8 @@ resource "azurerm_kubernetes_cluster" "aks_cluster" {
     network_policy    = "calico"
     load_balancer_sku = "standard"
     outbound_type     = "loadBalancer"
+    service_cidr      = "172.16.0.0/16"
+    dns_service_ip    = "172.16.0.10"
   }
 
   oms_agent {
