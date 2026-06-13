@@ -7,6 +7,9 @@ on:
       - "argocd/**"
       - "kubernetes/**"
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   sync:
     name: Sync ArgoCD Applications
