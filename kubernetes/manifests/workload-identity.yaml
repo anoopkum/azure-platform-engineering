@@ -10,8 +10,8 @@ metadata:
   name: external-secrets
   namespace: external-secrets
   annotations:
-    azure.workload.identity/client-id: "${WORKLOAD_IDENTITY_CLIENT_ID}"
-    azure.workload.identity/tenant-id: "${AZURE_TENANT_ID}"
+    azure.workload.identity/client-id: "c74adc3c-5487-4c74-8c70-4f1cb2a64193"
+    azure.workload.identity/tenant-id: "e2e605ca-a105-4b19-bcb9-5b1ca2d5ce71"
   labels:
     azure.workload.identity/use: "true"
 ---
@@ -22,6 +22,6 @@ metadata:
   namespace: cert-manager
   annotations:
     azure.workload.identity/client-id: "${CERT_MANAGER_WORKLOAD_IDENTITY_CLIENT_ID}"
-    azure.workload.identity/tenant-id: "${AZURE_TENANT_ID}"
+    azure.workload.identity/tenant-id: "e2e605ca-a105-4b19-bcb9-5b1ca2d5ce71"
   labels:
     azure.workload.identity/use: "true"
