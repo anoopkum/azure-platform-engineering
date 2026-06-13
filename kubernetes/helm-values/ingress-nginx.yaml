@@ -1,0 +1,56 @@
+controller:
+  replicaCount: 2
+
+  nodeSelector:
+    kubernetes.io/os: linux
+    agentpool: user
+
+  tolerations: []
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  service:
+    type: LoadBalancer
+    externalTrafficPolicy: Local
+    annotations:
+      service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: /healthz
+
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false
+
+  config:
+    use-forwarded-headers: "true"
+    proxy-body-size: "50m"
+    proxy-connect-timeout: "15"
+    proxy-read-timeout: "600"
+    proxy-send-timeout: "600"
+
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+
+defaultBackend:
+  enabled: true
+  replicaCount: 1
+  nodeSelector:
+    kubernetes.io/os: linux
+    agentpool: user

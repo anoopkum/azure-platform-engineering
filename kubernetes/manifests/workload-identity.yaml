@@ -1,0 +1,27 @@
+---
+# Federated credential wiring for external-secrets operator.
+# The corresponding Azure resources (managed identity + federated credential)
+# are created outside this repo (e.g. via Terraform az_federated_identity_credential).
+#
+# Replace ${...} placeholders with real values before applying.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: external-secrets
+  namespace: external-secrets
+  annotations:
+    azure.workload.identity/client-id: "${WORKLOAD_IDENTITY_CLIENT_ID}"
+    azure.workload.identity/tenant-id: "${AZURE_TENANT_ID}"
+  labels:
+    azure.workload.identity/use: "true"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+  annotations:
+    azure.workload.identity/client-id: "${CERT_MANAGER_WORKLOAD_IDENTITY_CLIENT_ID}"
+    azure.workload.identity/tenant-id: "${AZURE_TENANT_ID}"
+  labels:
+    azure.workload.identity/use: "true"
