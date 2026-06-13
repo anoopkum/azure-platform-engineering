@@ -20,9 +20,16 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: cert-manager
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[].namespaceSelector.matchExpressions
+
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - RespectIgnoreDifferences=true
