@@ -62,6 +62,28 @@ module "acr" {
   tags                           = local.tags
 }
 
+module "workload_identity_external_secrets" {
+  source                    = "./modules/workload-identity"
+  name                      = "${var.prefix}-wi-external-secrets"
+  location                  = var.location
+  resource_group_name       = module.networking.resource_group_name
+  oidc_issuer_url           = module.aks.oidc_issuer_url
+  service_account_namespace = "external-secrets"
+  service_account_name      = "external-secrets"
+  tags                      = local.tags
+}
+
+module "keyvault" {
+  source              = "./modules/keyvault"
+  name                = "${replace(var.prefix, "-", "")}kv${var.env}"
+  location            = var.location
+  resource_group_name = module.networking.resource_group_name
+  secrets_reader_principal_ids = {
+    external-secrets = module.workload_identity_external_secrets.principal_id
+  }
+  tags = local.tags
+}
+
 locals {
   tags = merge(var.tags, {
     environment = var.env

@@ -34,6 +34,9 @@ resource "azurerm_kubernetes_cluster" "aks_cluster" {
     dns_service_ip    = "172.16.0.10"
   }
 
+  oidc_issuer_enabled       = true
+  workload_identity_enabled = true
+
   oms_agent {
     log_analytics_workspace_id = var.log_analytics_workspace_id
   }
