@@ -71,7 +71,9 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Terraform Init
-        run: terraform init
+        run: |
+          terraform init \
+            -backend-config="envs/${{ inputs.environment || 'dev' }}/backend.conf"
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Terraform Plan
@@ -115,7 +117,9 @@ jobs:
           path: ${{ env.WORKING_DIR }}
 
       - name: Terraform Init
-        run: terraform init
+        run: |
+          terraform init \
+            -backend-config="envs/${{ inputs.environment || 'dev' }}/backend.conf"
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Terraform Apply

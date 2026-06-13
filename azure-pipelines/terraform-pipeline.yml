@@ -76,7 +76,8 @@ stages:
                 export ARM_TENANT_ID="$tenantId"
                 export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
                 export TF_VAR_subscription_id="$ARM_SUBSCRIPTION_ID"
-                terraform init
+                terraform init \
+                  -backend-config="envs/${{ parameters.environment }}/backend.conf"
                 terraform plan \
                   -var-file="envs/${{ parameters.environment }}/terraform.tfvars" \
                   -out=tfplan
@@ -124,6 +125,7 @@ stages:
                       export ARM_TENANT_ID="$tenantId"
                       export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
                       export TF_VAR_subscription_id="$ARM_SUBSCRIPTION_ID"
-                      terraform init
+                      terraform init \
+                        -backend-config="envs/${{ parameters.environment }}/backend.conf"
                       terraform apply -auto-approve tfplan
                   workingDirectory: $(WORKING_DIR)

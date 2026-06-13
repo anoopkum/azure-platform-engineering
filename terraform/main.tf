@@ -8,11 +8,12 @@ terraform {
     }
   }
 
+  # Partial backend config — storage_account_name is passed via -backend-config
+  # at init time: terraform init -backend-config=envs/<env>/backend.conf
   backend "azurerm" {
-    resource_group_name  = "tfstate-rg"
-    storage_account_name = "tfstate${var.env}"
-    container_name       = "tfstate"
-    key                  = "azure-platform-engineering.tfstate"
+    resource_group_name = "tfstate-rg"
+    container_name      = "tfstate"
+    key                 = "azure-platform-engineering.tfstate"
   }
 }
 
