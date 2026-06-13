@@ -66,6 +66,25 @@ az role assignment create \
 
 ---
 
+### Error: `AuthorizationFailed: does not have authorization to perform action Microsoft.Authorization/roleAssignments/write`
+```
+Error: unexpected status 403 (403 Forbidden)
+AuthorizationFailed: The client '***' does not have authorization to perform
+action 'Microsoft.Authorization/roleAssignments/write' over scope
+'.../registries/apedevacrdev/providers/Microsoft.Authorization/roleAssignments/...'
+```
+**Cause:** `Contributor` role explicitly excludes `Microsoft.Authorization/roleAssignments/write`. Terraform needs this permission to assign `AcrPull` to the AKS kubelet identity on the ACR. This affects the `azurerm_role_assignment.aks_acr_pull` resource in `modules/acr/main.tf`.
+**Fix:** Assign `User Access Administrator` to the SP scoped to the resource group (not the full subscription):
+```bash
+az role assignment create \
+  --assignee <sp-object-id> \
+  --role "User Access Administrator" \
+  --scope /subscriptions/<sub-id>/resourceGroups/ape-dev-rg
+```
+After assigning, re-trigger apply — Terraform is idempotent and will only retry the failed role assignment.
+
+---
+
 ### Error: `compute.VirtualMachineScaleSetsClient` quota exceeded
 ```
 Error: creating Node Pool: compute.VirtualMachineScaleSetsClient#CreateOrUpdate:
