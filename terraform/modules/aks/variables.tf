@@ -13,7 +13,7 @@ variable "resource_group_name" {
 
 variable "kubernetes_version" {
   type    = string
-  default = "1.31"
+  default = "1.36"
 }
 
 variable "sku_tier" {

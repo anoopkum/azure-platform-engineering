@@ -36,11 +36,6 @@ resource "azurerm_kubernetes_cluster" "aks_cluster" {
     log_analytics_workspace_id = var.log_analytics_workspace_id
   }
 
-  azure_active_directory_role_based_access_control {
-    managed            = true
-    azure_rbac_enabled = true
-  }
-
   lifecycle {
     ignore_changes = [default_node_pool[0].node_count]
   }
@@ -75,7 +70,7 @@ resource "azurerm_monitor_diagnostic_setting" "aks_diag" {
   enabled_log {
     category = "kube-scheduler"
   }
-  metric {
+  enabled_metric {
     category = "AllMetrics"
   }
 }
