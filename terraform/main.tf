@@ -19,6 +19,7 @@ terraform {
 provider "azurerm" {
   features {}
   subscription_id = var.subscription_id
+  use_oidc        = true
 }
 
 resource "azurerm_log_analytics_workspace" "law" {

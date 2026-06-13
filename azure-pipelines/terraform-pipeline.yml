@@ -70,12 +70,17 @@ stages:
               scriptLocation: inlineScript
               addSpnToEnvironment: true
               inlineScript: |
-                export TF_VAR_subscription_id="$(az account show --query id -o tsv)"
+                export ARM_USE_OIDC=true
+                export ARM_OIDC_TOKEN="$idToken"
+                export ARM_CLIENT_ID="$servicePrincipalId"
+                export ARM_TENANT_ID="$tenantId"
+                export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+                export TF_VAR_subscription_id="$ARM_SUBSCRIPTION_ID"
                 terraform init
                 terraform plan \
                   -var-file="envs/${{ parameters.environment }}/terraform.tfvars" \
                   -out=tfplan
-              workingDirectory: $(WORKING_DIR)
+            workingDirectory: $(WORKING_DIR)
 
           - task: PublishPipelineArtifact@1
             inputs:
@@ -113,7 +118,12 @@ stages:
                     scriptLocation: inlineScript
                     addSpnToEnvironment: true
                     inlineScript: |
-                      export TF_VAR_subscription_id="$(az account show --query id -o tsv)"
+                      export ARM_USE_OIDC=true
+                      export ARM_OIDC_TOKEN="$idToken"
+                      export ARM_CLIENT_ID="$servicePrincipalId"
+                      export ARM_TENANT_ID="$tenantId"
+                      export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+                      export TF_VAR_subscription_id="$ARM_SUBSCRIPTION_ID"
                       terraform init
                       terraform apply -auto-approve tfplan
-                    workingDirectory: $(WORKING_DIR)
+                  workingDirectory: $(WORKING_DIR)
