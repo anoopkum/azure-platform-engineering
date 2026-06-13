@@ -1,0 +1,115 @@
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - terraform/**
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - terraform/**
+
+parameters:
+  - name: environment
+    displayName: Target Environment
+    type: string
+    default: dev
+    values:
+      - dev
+      - staging
+      - prod
+
+variables:
+  TF_VERSION: "1.8.0"
+  WORKING_DIR: terraform
+
+stages:
+  - stage: Validate
+    displayName: Validate Terraform
+    jobs:
+      - job: Validate
+        displayName: Format & Validate
+        pool:
+          name: self-hosted-linux
+        steps:
+          - task: TerraformInstaller@1
+            inputs:
+              terraformVersion: $(TF_VERSION)
+
+          - script: terraform fmt -check -recursive
+            displayName: Terraform Format Check
+            workingDirectory: $(WORKING_DIR)
+
+          - script: terraform init -backend=false && terraform validate
+            displayName: Terraform Validate
+            workingDirectory: $(WORKING_DIR)
+
+  - stage: Plan
+    displayName: Terraform Plan
+    dependsOn: Validate
+    jobs:
+      - job: Plan
+        displayName: Plan ${{ parameters.environment }}
+        pool:
+          name: self-hosted-linux
+        steps:
+          - task: TerraformInstaller@1
+            inputs:
+              terraformVersion: $(TF_VERSION)
+
+          - task: AzureCLI@2
+            displayName: Terraform Init & Plan
+            inputs:
+              azureSubscription: azure-service-connection
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                terraform init
+                terraform plan \
+                  -var-file="envs/${{ parameters.environment }}/terraform.tfvars" \
+                  -out=tfplan
+              workingDirectory: $(WORKING_DIR)
+
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: $(WORKING_DIR)/tfplan
+              artifact: tfplan-${{ parameters.environment }}
+
+  - stage: Apply
+    displayName: Terraform Apply
+    dependsOn: Plan
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: Apply
+        displayName: Apply ${{ parameters.environment }}
+        pool:
+          name: self-hosted-linux
+        environment: ${{ parameters.environment }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: TerraformInstaller@1
+                  inputs:
+                    terraformVersion: $(TF_VERSION)
+
+                - task: DownloadPipelineArtifact@2
+                  inputs:
+                    artifact: tfplan-${{ parameters.environment }}
+                    path: $(WORKING_DIR)
+
+                - task: AzureCLI@2
+                  displayName: Terraform Apply
+                  inputs:
+                    azureSubscription: azure-service-connection
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      terraform init
+                      terraform apply -auto-approve tfplan
+                    workingDirectory: $(WORKING_DIR)

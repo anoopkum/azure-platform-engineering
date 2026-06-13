@@ -1,0 +1,16 @@
+---
+azure_devops_org_url: "https://dev.azure.com/YOUR_ORG"
+azure_devops_pool_name: "self-hosted-linux"
+agent_version: "3.240.1"
+agent_install_dir: /opt/azure-agent
+
+argocd_version: "v2.11.0"
+argocd_cli_install_path: /usr/local/bin/argocd
+
+node_packages:
+  - curl
+  - git
+  - jq
+  - unzip
+  - apt-transport-https
+  - ca-certificates

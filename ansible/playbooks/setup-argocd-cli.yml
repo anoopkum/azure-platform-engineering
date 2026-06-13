@@ -1,0 +1,6 @@
+---
+- name: Install ArgoCD CLI on agent nodes
+  hosts: ado_agents
+  become: true
+  roles:
+    - argocd-cli

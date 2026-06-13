@@ -1,0 +1,38 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+.terraform.lock.hcl
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Secrets & credentials
+*.pem
+*.key
+*.pfx
+*.p12
+.env
+.env.*
+terraform.tfvars
+!envs/*/terraform.tfvars.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# macOS
+.DS_Store
+
+# Ansible
+*.retry
+ansible/group_vars/all/vault.yml
+
+# Kube config
+kubeconfig
+*.kubeconfig

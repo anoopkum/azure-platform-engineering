@@ -1,0 +1,11 @@
+---
+- name: Provision self-hosted Azure DevOps agents
+  hosts: ado_agents
+  become: true
+  vars_prompt:
+    - name: ado_pat
+      prompt: "Enter your Azure DevOps Personal Access Token"
+      private: true
+  roles:
+    - node-baseline
+    - ado-agent

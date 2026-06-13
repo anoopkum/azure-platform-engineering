@@ -1,0 +1,48 @@
+---
+- name: Install prerequisite packages
+  ansible.builtin.apt:
+    name: "{{ node_packages }}"
+    state: present
+    update_cache: true
+
+- name: Create agent directory
+  ansible.builtin.file:
+    path: "{{ agent_install_dir }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    mode: "0755"
+
+- name: Download ADO agent tarball
+  ansible.builtin.get_url:
+    url: "https://vstsagentpackage.azureedge.net/agent/{{ agent_version }}/vsts-agent-linux-x64-{{ agent_version }}.tar.gz"
+    dest: "/tmp/vsts-agent.tar.gz"
+    mode: "0644"
+
+- name: Extract agent
+  ansible.builtin.unarchive:
+    src: /tmp/vsts-agent.tar.gz
+    dest: "{{ agent_install_dir }}"
+    remote_src: true
+
+- name: Configure agent
+  ansible.builtin.command:
+    cmd: >
+      ./config.sh --unattended
+      --url {{ azure_devops_org_url }}
+      --auth PAT
+      --token {{ ado_pat }}
+      --pool {{ azure_devops_pool_name }}
+      --agent {{ inventory_hostname }}
+      --replace
+    chdir: "{{ agent_install_dir }}"
+  no_log: true
+
+- name: Install agent as systemd service
+  ansible.builtin.command:
+    cmd: ./svc.sh install
+    chdir: "{{ agent_install_dir }}"
+
+- name: Start agent service
+  ansible.builtin.command:
+    cmd: ./svc.sh start
+    chdir: "{{ agent_install_dir }}"

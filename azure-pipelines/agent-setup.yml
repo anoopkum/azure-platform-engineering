@@ -1,0 +1,48 @@
+trigger: none
+
+parameters:
+  - name: target_hosts
+    displayName: Ansible target group
+    type: string
+    default: ado_agents
+
+variables:
+  ANSIBLE_VERSION: "9.0.0"
+
+stages:
+  - stage: SetupAgents
+    displayName: Provision Self-Hosted Agents
+    jobs:
+      - job: Ansible
+        displayName: Run Ansible Playbook
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+
+          - script: pip install ansible==$(ANSIBLE_VERSION)
+            displayName: Install Ansible
+
+          - task: AzureCLI@2
+            displayName: Fetch SSH key from Key Vault
+            inputs:
+              azureSubscription: azure-service-connection
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az keyvault secret show \
+                  --vault-name $(KEYVAULT_NAME) \
+                  --name ansible-ssh-key \
+                  --query value -o tsv > /tmp/ansible_key
+                chmod 600 /tmp/ansible_key
+
+          - script: |
+              ansible-playbook \
+                -i ansible/inventory/hosts.ini \
+                ansible/playbooks/setup-ado-agents.yml \
+                --private-key /tmp/ansible_key \
+                --extra-vars "ado_pat=$(ADO_PAT)" \
+                --limit ${{ parameters.target_hosts }}
+            displayName: Run agent setup playbook
+            env:
+              ADO_PAT: $(ADO_PAT)
