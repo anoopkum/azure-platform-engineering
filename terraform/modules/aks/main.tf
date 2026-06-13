@@ -8,13 +8,13 @@ resource "azurerm_kubernetes_cluster" "aks_cluster" {
   tags                = var.tags
 
   default_node_pool {
-    name                = "system"
-    node_count          = var.system_node_count
-    vm_size             = var.system_vm_size
-    vnet_subnet_id      = var.aks_subnet_id
-    os_disk_size_gb     = 50
-    type                = "VirtualMachineScaleSets"
-    zones               = ["1", "2", "3"]
+    name            = "system"
+    node_count      = var.system_node_count
+    vm_size         = var.system_vm_size
+    vnet_subnet_id  = var.aks_subnet_id
+    os_disk_size_gb = 50
+    type            = "VirtualMachineScaleSets"
+    zones           = ["1", "2", "3"]
 
     upgrade_settings {
       max_surge = "10%"
@@ -26,10 +26,10 @@ resource "azurerm_kubernetes_cluster" "aks_cluster" {
   }
 
   network_profile {
-    network_plugin     = "azure"
-    network_policy     = "calico"
-    load_balancer_sku  = "standard"
-    outbound_type      = "loadBalancer"
+    network_plugin    = "azure"
+    network_policy    = "calico"
+    load_balancer_sku = "standard"
+    outbound_type     = "loadBalancer"
   }
 
   oms_agent {

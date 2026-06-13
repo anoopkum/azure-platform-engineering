@@ -4,8 +4,8 @@ variable "prefix" {
 }
 
 variable "location" {
-  type        = string
-  default     = "uksouth"
+  type    = string
+  default = "uksouth"
 }
 
 variable "resource_group_name" {
