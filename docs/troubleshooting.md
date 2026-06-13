@@ -66,25 +66,6 @@ az role assignment create \
 
 ---
 
-### Error: `AuthorizationFailed: does not have authorization to perform action Microsoft.Authorization/roleAssignments/write`
-```
-Error: unexpected status 403 (403 Forbidden)
-AuthorizationFailed: The client '***' does not have authorization to perform
-action 'Microsoft.Authorization/roleAssignments/write' over scope
-'.../registries/apedevacrdev/providers/Microsoft.Authorization/roleAssignments/...'
-```
-**Cause:** `Contributor` role explicitly excludes `Microsoft.Authorization/roleAssignments/write`. Terraform needs this permission to assign `AcrPull` to the AKS kubelet identity on the ACR. This affects the `azurerm_role_assignment.aks_acr_pull` resource in `modules/acr/main.tf`.
-**Fix:** Assign `User Access Administrator` to the SP scoped to the resource group (not the full subscription):
-```bash
-az role assignment create \
-  --assignee <sp-object-id> \
-  --role "User Access Administrator" \
-  --scope /subscriptions/<sub-id>/resourceGroups/ape-dev-rg
-```
-After assigning, re-trigger apply — Terraform is idempotent and will only retry the failed role assignment.
-
----
-
 ### Error: `compute.VirtualMachineScaleSetsClient` quota exceeded
 ```
 Error: creating Node Pool: compute.VirtualMachineScaleSetsClient#CreateOrUpdate:
@@ -257,28 +238,6 @@ CIDR allocation for this project:
 
 ---
 
-### Error: `Given variables file envs/dev/terraform.tfvars does not exist`
-```
-Error: Failed to read variables file
-Given variables file envs/dev/terraform.tfvars does not exist.
-Error: Terraform exited with code 1.
-```
-**Cause:** The `envs/*/terraform.tfvars` files were listed in `.gitignore` (added to prevent accidental commit of secrets). After removing `subscription_id` from them, there are no secrets left in the file but it still wasn't being committed.
-**Fix:** Add a negation rule to `.gitignore` to allow the env tfvars files:
-```
-# In .gitignore — change:
-envs/*/terraform.tfvars
-# To:
-!envs/*/terraform.tfvars
-```
-Then force-add and commit the files:
-```bash
-git add -f terraform/envs/dev/terraform.tfvars terraform/envs/prod/terraform.tfvars
-git commit -m "Track env tfvars files"
-```
-
----
-
 ### Error: `StorageAccountAlreadyTaken` when creating Terraform state backend
 ```
 (StorageAccountAlreadyTaken) The storage account named tfstatedev is already taken.
@@ -293,36 +252,6 @@ az storage account create \
   --allow-blob-public-access false
 ```
 Update the storage account name in `terraform/envs/dev/backend.conf`.
-
----
-
-### PR merge conflict between `dev` and `main`
-```
-This branch has conflicts that must be resolved.
-mergeStateStatus: DIRTY / mergeable: CONFLICTING
-```
-**Cause:** Direct commits were made to `main` (before the dev branch workflow was established), then a `dev` branch was created. Both branches then modified the same files independently, causing divergence. Common conflicting files: `.gitignore`, `terraform/variables.tf`, `modules/aks/main.tf`, `modules/aks/variables.tf`.
-
-**Fix:** Rebase `dev` onto current `main` — keep the `dev` version for all conflicts since it contains the newer fixes:
-```bash
-git fetch origin
-git checkout dev
-git rebase origin/main
-# For each conflicted file — keep the dev changes, then:
-git add <file>
-git rebase --continue
-# Once complete:
-git push origin dev --force-with-lease
-```
-**What to keep per file during rebase:**
-| File | Keep |
-|---|---|
-| `terraform/variables.tf` | `kubernetes_version = "1.36"` |
-| `modules/aks/variables.tf` | `kubernetes_version = "1.36"` |
-| `modules/aks/main.tf` | Version without `managed = true` in AAD block |
-| `.gitignore` | Version with `!envs/*/terraform.tfvars` |
-
-**Prevention:** Never commit directly to `main`. All changes go through a PR from `dev` — branch protection enforces this.
 
 ---
 
