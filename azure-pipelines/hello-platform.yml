@@ -21,6 +21,7 @@ variables:
   ACR_NAME: apedevacrdev
   ACR_LOGIN_SERVER: apedevacrdev.azurecr.io
   HELM_VALUES_FILE: apps/hello-platform/helm/values.yaml
+  PIP_BREAK_SYSTEM_PACKAGES: "1"
 
 stages:
 
@@ -38,11 +39,10 @@ stages:
           - checkout: self
 
           - script: |
+              pip3 install --quiet -r $(APP_DIR)/requirements.txt \
+                                   -r $(APP_DIR)/requirements-dev.txt
               cd $(APP_DIR)
-              python3 -m venv .venv
-              source .venv/bin/activate
-              pip install --quiet -r requirements.txt -r requirements-dev.txt
-              pytest tests/ \
+              python3 -m pytest tests/ \
                 --cov=app \
                 --cov-report=xml:coverage.xml \
                 --cov-report=term-missing \
@@ -71,21 +71,17 @@ stages:
           - checkout: self
 
           - script: |
-              cd $(APP_DIR)
-              python3 -m venv .venv
-              source .venv/bin/activate
-              pip install --quiet bandit
-              bandit -r app/ \
+              pip3 install --quiet bandit
+              bandit -r $(APP_DIR)/app/ \
                 -f json \
-                -o bandit-results.json \
+                -o $(APP_DIR)/bandit-results.json \
                 --severity-level medium \
                 --confidence-level medium || true
-              # Fail on high severity issues
-              bandit -r app/ \
+              bandit -r $(APP_DIR)/app/ \
                 --severity-level high \
                 --confidence-level high \
                 --exit-zero
-              cat bandit-results.json
+              cat $(APP_DIR)/bandit-results.json
             displayName: Run Bandit SAST scan
 
           - task: PublishBuildArtifacts@1
@@ -103,17 +99,13 @@ stages:
           - checkout: self
 
           - script: |
-              cd $(APP_DIR)
-              python3 -m venv .venv
-              source .venv/bin/activate
-              pip install --quiet safety
-              pip install --quiet -r requirements.txt
-              # Audit production deps only; exit 0 so pipeline continues but report is visible
+              pip3 install --quiet safety
+              pip3 install --quiet -r $(APP_DIR)/requirements.txt
               safety check \
-                -r requirements.txt \
+                -r $(APP_DIR)/requirements.txt \
                 --output json \
-                --save-json safety-results.json || true
-              cat safety-results.json
+                --save-json $(APP_DIR)/safety-results.json || true
+              cat $(APP_DIR)/safety-results.json
             displayName: Run Safety SCA scan
 
           - task: PublishBuildArtifacts@1
@@ -139,7 +131,6 @@ stages:
           - checkout: self
 
           - script: |
-              # Image tag: short git SHA for traceability
               SHORT_SHA=$(echo $(Build.SourceVersion) | cut -c1-8)
               echo "##vso[task.setvariable variable=IMAGE_TAG]$SHORT_SHA"
               echo "Image tag: $SHORT_SHA"
@@ -161,9 +152,7 @@ stages:
                 $(APP_DIR)
             displayName: Docker build
 
-          # ── Trivy — scan for CRITICAL/HIGH CVEs before pushing ──────
           - script: |
-              # Install Trivy if not present
               if ! command -v trivy &>/dev/null; then
                 curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
                   | sh -s -- -b /usr/local/bin
@@ -215,9 +204,8 @@ stages:
                   displayName: Restore image tag variable
 
                 - script: |
-                    # Patch the image tag in helm values.yaml
                     sed -i "s|tag: .*|tag: \"$(IMAGE_TAG)\"|" $(HELM_VALUES_FILE)
-                    cat $(HELM_VALUES_FILE) | grep tag
+                    grep tag $(HELM_VALUES_FILE)
                   displayName: Update image tag in values.yaml
 
                 - script: |
