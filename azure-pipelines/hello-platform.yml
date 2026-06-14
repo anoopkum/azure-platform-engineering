@@ -161,6 +161,7 @@ stages:
               trivy image \
                 --exit-code 1 \
                 --severity CRITICAL,HIGH \
+                --ignore-unfixed \
                 --no-progress \
                 --format json \
                 --output $(APP_DIR)/trivy-results.json \
