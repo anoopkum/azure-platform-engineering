@@ -1,0 +1,36 @@
+---
+# Self-signed CA issuer — dev only, no DNS zone required.
+# Certificates issued by this will show browser warnings; use for internal testing only.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-cluster-issuer
+spec:
+  selfSigned: {}
+---
+# CA Certificate — cert-manager generates this once and stores it in the secret below.
+# All app certificates are signed by this CA.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: selfsigned-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: dev-platform-ca
+  secretName: selfsigned-ca-secret
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: selfsigned-cluster-issuer
+    kind: ClusterIssuer
+---
+# CA-backed issuer — apps use this so all certs share the same dev CA
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: dev-ca-issuer
+spec:
+  ca:
+    secretName: selfsigned-ca-secret

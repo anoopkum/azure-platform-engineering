@@ -1,0 +1,44 @@
+replicaCount: 2
+
+image:
+  repository: apedevacrdev.azurecr.io/hello-platform
+  pullPolicy: Always
+  tag: "latest"
+
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: nginx
+  host: hello-platform.dev.local
+  tls:
+    enabled: true
+    secretName: hello-platform-tls
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+env:
+  APP_ENV: dev
+  APP_VERSION: "1.0.0"
+
+livenessProbe:
+  path: /health
+  initialDelaySeconds: 10
+  periodSeconds: 15
+
+readinessProbe:
+  path: /ready
+  initialDelaySeconds: 5
+  periodSeconds: 10

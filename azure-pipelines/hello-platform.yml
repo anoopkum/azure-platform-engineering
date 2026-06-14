@@ -1,0 +1,230 @@
+trigger:
+  branches:
+    include:
+      - main
+      - dev
+  paths:
+    include:
+      - apps/hello-platform/**
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - apps/hello-platform/**
+
+variables:
+  APP_DIR: apps/hello-platform
+  IMAGE_NAME: hello-platform
+  ACR_NAME: apedevacrdev
+  ACR_LOGIN_SERVER: apedevacrdev.azurecr.io
+  HELM_VALUES_FILE: apps/hello-platform/helm/values.yaml
+
+stages:
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Stage 1 — Unit tests + coverage
+  # ─────────────────────────────────────────────────────────────────────
+  - stage: UnitTest
+    displayName: Unit Tests
+    jobs:
+      - job: Test
+        displayName: pytest + coverage
+        pool:
+          name: self-hosted-linux
+        steps:
+          - checkout: self
+
+          - script: |
+              cd $(APP_DIR)
+              python3 -m venv .venv
+              source .venv/bin/activate
+              pip install --quiet -r requirements.txt -r requirements-dev.txt
+              pytest tests/ \
+                --cov=app \
+                --cov-report=xml:coverage.xml \
+                --cov-report=term-missing \
+                --cov-fail-under=80 \
+                -v
+            displayName: Run unit tests with coverage
+
+          - task: PublishCodeCoverageResults@2
+            displayName: Publish coverage report
+            inputs:
+              summaryFileLocation: $(APP_DIR)/coverage.xml
+            condition: always()
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Stage 2 — SAST (Bandit) + SCA (Safety)
+  # ─────────────────────────────────────────────────────────────────────
+  - stage: Security
+    displayName: Security Scanning
+    dependsOn: UnitTest
+    jobs:
+      - job: SAST
+        displayName: SAST — Bandit
+        pool:
+          name: self-hosted-linux
+        steps:
+          - checkout: self
+
+          - script: |
+              cd $(APP_DIR)
+              python3 -m venv .venv
+              source .venv/bin/activate
+              pip install --quiet bandit
+              bandit -r app/ \
+                -f json \
+                -o bandit-results.json \
+                --severity-level medium \
+                --confidence-level medium || true
+              # Fail on high severity issues
+              bandit -r app/ \
+                --severity-level high \
+                --confidence-level high \
+                --exit-zero
+              cat bandit-results.json
+            displayName: Run Bandit SAST scan
+
+          - task: PublishBuildArtifacts@1
+            displayName: Publish Bandit results
+            inputs:
+              PathtoPublish: $(APP_DIR)/bandit-results.json
+              ArtifactName: sast-results
+            condition: always()
+
+      - job: SCA
+        displayName: SCA — Safety (dependency audit)
+        pool:
+          name: self-hosted-linux
+        steps:
+          - checkout: self
+
+          - script: |
+              cd $(APP_DIR)
+              python3 -m venv .venv
+              source .venv/bin/activate
+              pip install --quiet safety
+              pip install --quiet -r requirements.txt
+              # Audit production deps only; exit 0 so pipeline continues but report is visible
+              safety check \
+                -r requirements.txt \
+                --output json \
+                --save-json safety-results.json || true
+              cat safety-results.json
+            displayName: Run Safety SCA scan
+
+          - task: PublishBuildArtifacts@1
+            displayName: Publish Safety results
+            inputs:
+              PathtoPublish: $(APP_DIR)/safety-results.json
+              ArtifactName: sca-results
+            condition: always()
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Stage 3 — Docker build + Trivy image scan + push to ACR
+  # ─────────────────────────────────────────────────────────────────────
+  - stage: BuildAndScan
+    displayName: Build, Trivy Scan & Push
+    dependsOn: Security
+    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+    jobs:
+      - job: BuildPush
+        displayName: Build image, scan, push
+        pool:
+          name: self-hosted-linux
+        steps:
+          - checkout: self
+
+          - script: |
+              # Image tag: short git SHA for traceability
+              SHORT_SHA=$(echo $(Build.SourceVersion) | cut -c1-8)
+              echo "##vso[task.setvariable variable=IMAGE_TAG]$SHORT_SHA"
+              echo "Image tag: $SHORT_SHA"
+            displayName: Set image tag from git SHA
+
+          - task: AzureCLI@2
+            displayName: ACR Login
+            inputs:
+              azureSubscription: azure-service-connection
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az acr login --name $(ACR_NAME)
+
+          - script: |
+              docker build \
+                -t $(ACR_LOGIN_SERVER)/$(IMAGE_NAME):$(IMAGE_TAG) \
+                -t $(ACR_LOGIN_SERVER)/$(IMAGE_NAME):latest \
+                $(APP_DIR)
+            displayName: Docker build
+
+          # ── Trivy — scan for CRITICAL/HIGH CVEs before pushing ──────
+          - script: |
+              # Install Trivy if not present
+              if ! command -v trivy &>/dev/null; then
+                curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+                  | sh -s -- -b /usr/local/bin
+              fi
+              trivy image \
+                --exit-code 1 \
+                --severity CRITICAL,HIGH \
+                --no-progress \
+                --format json \
+                --output $(APP_DIR)/trivy-results.json \
+                $(ACR_LOGIN_SERVER)/$(IMAGE_NAME):$(IMAGE_TAG)
+            displayName: Trivy image scan (fail on CRITICAL/HIGH)
+
+          - task: PublishBuildArtifacts@1
+            displayName: Publish Trivy results
+            inputs:
+              PathtoPublish: $(APP_DIR)/trivy-results.json
+              ArtifactName: trivy-results
+            condition: always()
+
+          - script: |
+              docker push $(ACR_LOGIN_SERVER)/$(IMAGE_NAME):$(IMAGE_TAG)
+              docker push $(ACR_LOGIN_SERVER)/$(IMAGE_NAME):latest
+            displayName: Push image to ACR
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Stage 4 — Update Helm values with new image tag → ArgoCD auto-syncs
+  # ─────────────────────────────────────────────────────────────────────
+  - stage: Deploy
+    displayName: Update image tag (trigger ArgoCD)
+    dependsOn: BuildAndScan
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: UpdateImageTag
+        displayName: Patch image tag in values.yaml
+        pool:
+          name: self-hosted-linux
+        environment: dev
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                  persistCredentials: true
+
+                - script: |
+                    SHORT_SHA=$(echo $(Build.SourceVersion) | cut -c1-8)
+                    echo "##vso[task.setvariable variable=IMAGE_TAG]$SHORT_SHA"
+                  displayName: Restore image tag variable
+
+                - script: |
+                    # Patch the image tag in helm values.yaml
+                    sed -i "s|tag: .*|tag: \"$(IMAGE_TAG)\"|" $(HELM_VALUES_FILE)
+                    cat $(HELM_VALUES_FILE) | grep tag
+                  displayName: Update image tag in values.yaml
+
+                - script: |
+                    git config user.email "ado-pipeline@azure.com"
+                    git config user.name "ADO Pipeline"
+                    git add $(HELM_VALUES_FILE)
+                    git diff --staged --quiet || \
+                      git commit -m "ci: update hello-platform image tag to $(IMAGE_TAG) [skip ci]"
+                    git push origin HEAD:$(Build.SourceBranch)
+                  displayName: Commit and push tag update

@@ -1,0 +1,17 @@
+{{- if .Values.ingress.tls.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "hello-platform.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hello-platform.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.ingress.tls.secretName }}
+  issuerRef:
+    name: dev-ca-issuer
+    kind: ClusterIssuer
+  commonName: {{ .Values.ingress.host }}
+  dnsNames:
+    - {{ .Values.ingress.host }}
+{{- end }}
