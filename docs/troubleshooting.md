@@ -517,7 +517,149 @@ This is what `scripts/rotate-secrets.sh` does automatically.
 
 ---
 
-## Ansible
+## Ansible / Kubernetes Job
+
+### ADO agent pool not found during `config.sh`
+```
+stderr: "Agent pool not found: 'self-hosted-linux'"
+rc: 1
+```
+**Cause:** The agent pool must exist in ADO *before* `config.sh` can register agents. It is not created automatically.
+**Fix:** Create it once via the REST API (requires a PAT with Agent Pools manage permission):
+```bash
+PAT=$(kubectl get secret ansible-ado-pat -o jsonpath='{.data.pat}' | base64 -d)
+AUTH=$(echo -n ":$PAT" | base64)
+curl -s -X POST \
+  -H "Authorization: Basic $AUTH" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"self-hosted-linux","autoProvision":true}' \
+  "https://dev.azure.com/<org>/_apis/distributedtask/pools?api-version=7.1"
+```
+Then re-run the Ansible job.
+
+---
+
+### `Must not run with sudo` from `config.sh`
+```
+stdout: "Must not run with sudo"
+rc: 1
+```
+**Cause:** The playbook uses `become: true` globally, so `config.sh` is executed as root. The ADO agent explicitly forbids root execution.
+**Fix:** Add `become: false` to the Configure agent task only. `svc.sh install` and `svc.sh start` still run as root (correct for systemd service installation):
+```yaml
+- name: Configure agent
+  ansible.builtin.command:
+    cmd: >
+      ./config.sh --unattended ...
+    chdir: /opt/azure-agent
+  become: false
+  no_log: true   # prevents PAT appearing in logs
+```
+
+---
+
+### `vstsagentpackage.azureedge.net` NXDOMAIN — agent tarball download fails
+```
+wget: bad address 'vstsagentpackage.azureedge.net'
+```
+**Cause:** Azure's default DNS resolver (`168.63.129.16`) cannot resolve the TrafficManager/CDN CNAME chain that `vstsagentpackage.azureedge.net` uses. This affects VMSS VMs in the private agents subnet.
+**Root cause chain:** `vstsagentpackage.azureedge.net` → `vstsagentpackagecdnprod.trafficmanager.net` → NXDOMAIN from `168.63.129.16`. Even setting VNet DNS to `8.8.8.8` did not resolve this because Ubuntu 22.04 `systemd-resolved` intercepts DNS via the stub listener at `127.0.0.53`.
+**Fix:** Download the tarball from the Ansible controller pod (which runs inside AKS and has working CoreDNS) and push it to the VMs via Ansible `copy` module:
+```yaml
+# In the Kubernetes Job container — download on pod
+wget -q -O /tmp/vsts-agent.tar.gz "$DOWNLOAD_URL"
+
+# In Ansible role — copy from controller to VMs
+- name: Copy ADO agent tarball from controller to VM
+  ansible.builtin.copy:
+    src: /tmp/vsts-agent.tar.gz
+    dest: /tmp/vsts-agent.tar.gz
+```
+Use the ADO REST API to discover the download URL dynamically (avoids hardcoding version):
+```bash
+wget -q -O- \
+  --header="Authorization: Basic $AUTH" \
+  "https://dev.azure.com/<org>/_apis/distributedtask/packages/agent?platform=linux-x64&top=1&api-version=7.1" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); v=d['value'][0]; print(v.get('downloadUrl') or v['files'][0]['contentUrl'])"
+```
+
+---
+
+### base64 encoding adds newline — ADO API returns 400
+```
+400 Bad Request from ADO API
+```
+**Cause:** `echo -n :$PAT | base64` on macOS/Linux may add a trailing newline in the `Authorization: Basic` header.
+**Fix:** Use Python for encoding inside the pod:
+```bash
+AUTH=$(python3 -c "import base64,os; print('Basic ' + base64.b64encode((':' + os.environ['ADO_PAT']).encode()).decode())")
+```
+
+---
+
+### `curl: command not found` in cytopia/ansible image
+**Cause:** The `cytopia/ansible:latest-tools` image does not include curl.
+**Fix:** Use `wget` instead. Note that this image uses BusyBox wget — the `--show-progress` flag is not supported. Use `-q` (quiet) flag only.
+
+---
+
+### ConfigMap-based playbook: `role 'node-baseline' was not found`
+**Cause:** When embedding playbooks in a ConfigMap and using an init container to copy them, the roles must be placed in a directory that `ANSIBLE_ROLES_PATH` points to. If the init container copies role task files to the wrong path, Ansible cannot find the role.
+**Fix:** Set `ANSIBLE_ROLES_PATH=/ansible/roles` in the container env, and have the init container build the full role tree:
+```bash
+mkdir -p /work/roles/node-baseline/tasks /work/roles/ado-agent/tasks
+cp /cm/node-baseline.yml /work/roles/node-baseline/tasks/main.yml
+cp /cm/ado-agent.yml /work/roles/ado-agent/tasks/main.yml
+```
+
+---
+
+### Ansible job: `hosts: ado_agents` not matched with inline inventory
+```
+[WARNING]: Could not match supplied host pattern, ignoring: ado_agents
+[WARNING]: provided hosts list is empty, only localhost is available
+```
+**Cause:** Inline inventory `"10.0.2.4,10.0.2.5,"` creates ungrouped hosts under the `all` group. The playbook `hosts: ado_agents` matches nothing.
+**Fix:** Change the playbook `hosts` field to `all`:
+```yaml
+- name: Provision self-hosted Azure DevOps agents
+  hosts: all
+```
+
+---
+
+### `K8s field is immutable` IDE warnings on ansible-job.yaml
+**Cause:** These are IDE (VSCode) linter warnings about the Job spec (`selector`, `template`) being immutable after creation. The warnings are cosmetic — they refer to cluster-side immutability if you tried to `kubectl apply` a change to a running job. Delete the old job first, then apply.
+**Fix (not required for the file itself):** Delete and re-create:
+```bash
+kubectl delete job ansible-ado-agents --ignore-not-found
+kubectl apply -f kubernetes/manifests/ansible/ansible-job.yaml
+```
+
+---
+
+### VMSS instances have no outbound internet
+```
+Err:1 http://archive.ubuntu.com/ubuntu jammy InRelease
+  Could not connect to archive.ubuntu.com:80
+```
+**Cause:** The agents subnet had no route to the internet. VMSS instances have private IPs only (no public IPs), so without an egress path all outbound traffic is dropped.
+**Fix:** Attach an Azure NAT Gateway to the agents subnet (see `terraform/modules/networking/main.tf`). The NAT Gateway provides a static public IP for outbound SNAT:
+```hcl
+resource "azurerm_nat_gateway" "nat" { ... }
+resource "azurerm_subnet_nat_gateway_association" "agents" {
+  subnet_id      = azurerm_subnet.agents_subnet.id
+  nat_gateway_id = azurerm_nat_gateway.nat.id
+}
+```
+
+---
+
+### VMSS DNS fails even after adding 8.8.8.8 to VNet
+**Cause:** Setting `dns_servers = ["8.8.8.8", "8.8.4.4"]` on the VNet changes the DHCP-advertised resolver, but Ubuntu 22.04 uses `systemd-resolved` with a stub listener at `127.0.0.53`. Calls to `resolvectl dns eth0 8.8.8.8` update the per-interface resolver but Python's socket layer still queries the stub. For some CDN/TrafficManager hostnames (like `vstsagentpackage.azureedge.net`) the stub returned NXDOMAIN regardless.
+**Fix:** Download from the AKS pod (CoreDNS resolves fine) and push via Ansible copy — see "vstsagentpackage.azureedge.net NXDOMAIN" entry above.
+
+---
 
 ### `UNREACHABLE` for all hosts
 ```
