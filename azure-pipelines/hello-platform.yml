@@ -72,12 +72,12 @@ stages:
 
           - script: |
               pip3 install --quiet bandit
-              bandit -r $(APP_DIR)/app/ \
+              python3 -m bandit -r $(APP_DIR)/app/ \
                 -f json \
                 -o $(APP_DIR)/bandit-results.json \
                 --severity-level medium \
                 --confidence-level medium || true
-              bandit -r $(APP_DIR)/app/ \
+              python3 -m bandit -r $(APP_DIR)/app/ \
                 --severity-level high \
                 --confidence-level high \
                 --exit-zero
@@ -101,7 +101,7 @@ stages:
           - script: |
               pip3 install --quiet safety
               pip3 install --quiet -r $(APP_DIR)/requirements.txt
-              safety check \
+              python3 -m safety check \
                 -r $(APP_DIR)/requirements.txt \
                 --output json \
                 --save-json $(APP_DIR)/safety-results.json || true
