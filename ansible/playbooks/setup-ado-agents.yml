@@ -2,10 +2,8 @@
 - name: Provision self-hosted Azure DevOps agents
   hosts: ado_agents
   become: true
-  vars_prompt:
-    - name: ado_pat
-      prompt: "Enter your Azure DevOps Personal Access Token"
-      private: true
+  # ado_pat must be passed via --extra-vars or as env var ADO_PAT
+  # Non-interactive: ansible-playbook ... -e "ado_pat=$ADO_PAT"
   roles:
     - node-baseline
     - ado-agent

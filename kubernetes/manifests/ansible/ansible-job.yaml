@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ansible-ado-agents
+  namespace: default
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      volumes:
+        - name: ssh-key
+          secret:
+            secretName: ansible-ssh-key
+            defaultMode: 0400
+        - name: ansible-code
+          emptyDir: {}
+      initContainers:
+        - name: copy-ansible
+          image: alpine/git:latest
+          command:
+            - sh
+            - -c
+            - |
+              git clone https://github.com/anoopkum/azure-platform-engineering.git /workspace && \
+              cp -r /workspace/ansible /ansible-src
+          volumeMounts:
+            - name: ansible-code
+              mountPath: /ansible-src
+      containers:
+        - name: ansible
+          image: cytopia/ansible:latest-tools
+          command:
+            - sh
+            - -c
+            - |
+              ansible-playbook \
+                -i /ansible/inventory/hosts.ini \
+                /ansible/playbooks/setup-ado-agents.yml \
+                -e "ado_pat=$ADO_PAT" \
+                --ssh-extra-args='-o StrictHostKeyChecking=no'
+          env:
+            - name: ADO_PAT
+              valueFrom:
+                secretKeyRef:
+                  name: ansible-ado-pat
+                  key: pat
+            - name: ANSIBLE_HOST_KEY_CHECKING
+              value: "False"
+            - name: ANSIBLE_REMOTE_USER
+              value: azureuser
+          volumeMounts:
+            - name: ssh-key
+              mountPath: /root/.ssh
+            - name: ansible-code
+              mountPath: /ansible
