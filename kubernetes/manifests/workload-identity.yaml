@@ -11,6 +11,6 @@ metadata:
   namespace: cert-manager
   annotations:
     azure.workload.identity/client-id: "${CERT_MANAGER_WORKLOAD_IDENTITY_CLIENT_ID}"
-    azure.workload.identity/tenant-id: "e2e605ca-a105-4b19-bcb9-5b1ca2d5ce71"
+    azure.workload.identity/tenant-id: "${AZURE_TENANT_ID}"
   labels:
     azure.workload.identity/use: "true"
