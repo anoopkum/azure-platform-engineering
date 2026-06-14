@@ -29,3 +29,34 @@ resource "azurerm_subnet" "agents_subnet" {
   virtual_network_name = azurerm_virtual_network.vnet.name
   address_prefixes     = var.agents_subnet_prefixes
 }
+
+resource "azurerm_public_ip" "nat_ip" {
+  name                = "${var.prefix}-nat-ip"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.rg.name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+  tags                = var.tags
+
+  lifecycle { ignore_changes = [tags] }
+}
+
+resource "azurerm_nat_gateway" "nat" {
+  name                = "${var.prefix}-nat"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.rg.name
+  sku_name            = "Standard"
+  tags                = var.tags
+
+  lifecycle { ignore_changes = [tags] }
+}
+
+resource "azurerm_nat_gateway_public_ip_association" "nat_ip" {
+  nat_gateway_id       = azurerm_nat_gateway.nat.id
+  public_ip_address_id = azurerm_public_ip.nat_ip.id
+}
+
+resource "azurerm_subnet_nat_gateway_association" "agents" {
+  subnet_id      = azurerm_subnet.agents_subnet.id
+  nat_gateway_id = azurerm_nat_gateway.nat.id
+}
