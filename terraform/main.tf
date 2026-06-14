@@ -73,6 +73,17 @@ module "workload_identity_external_secrets" {
   tags                      = local.tags
 }
 
+module "workload_identity_cert_manager" {
+  source                    = "./modules/workload-identity"
+  name                      = "${var.prefix}-wi-cert-manager"
+  location                  = var.location
+  resource_group_name       = module.networking.resource_group_name
+  oidc_issuer_url           = module.aks.oidc_issuer_url
+  service_account_namespace = "cert-manager"
+  service_account_name      = "cert-manager"
+  tags                      = local.tags
+}
+
 module "keyvault" {
   source              = "./modules/keyvault"
   name                = "${replace(var.prefix, "-", "")}kv${var.env}"
