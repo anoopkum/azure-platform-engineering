@@ -1,5 +1,6 @@
 ---
-azure_devops_org_url: "https://dev.azure.com/YOUR_ORG"
+azure_devops_org_url: "https://dev.azure.com/anoopkum"
+azure_devops_project: "Azure-platform-engineering"
 azure_devops_pool_name: "self-hosted-linux"
 agent_version: "3.240.1"
 agent_install_dir: /opt/azure-agent

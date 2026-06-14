@@ -64,6 +64,17 @@ module "acr" {
   tags                           = local.tags
 }
 
+module "ado_agents" {
+  source              = "./modules/vm"
+  name                = "${var.prefix}-ado-agents"
+  resource_group_name = module.networking.resource_group_name
+  location            = var.location
+  subnet_id           = module.networking.agents_subnet_id
+  ssh_public_key      = var.ssh_public_key
+  instance_count      = var.ado_agent_count
+  tags                = local.tags
+}
+
 module "workload_identity_external_secrets" {
   source                    = "./modules/workload-identity"
   name                      = "${var.prefix}-wi-external-secrets"

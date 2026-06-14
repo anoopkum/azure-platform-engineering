@@ -33,6 +33,17 @@ variable "user_node_count" {
   default = 2
 }
 
+variable "ssh_public_key" {
+  type        = string
+  description = "SSH public key for ADO agent VMs"
+}
+
+variable "ado_agent_count" {
+  type        = number
+  default     = 2
+  description = "Initial number of ADO self-hosted agent instances"
+}
+
 variable "tags" {
   type    = map(string)
   default = {}
