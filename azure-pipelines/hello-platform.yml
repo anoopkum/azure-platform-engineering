@@ -99,19 +99,19 @@ stages:
           - checkout: self
 
           - script: |
-              pip3 install --quiet safety
+              pip3 install --quiet pip-audit
               pip3 install --quiet -r $(APP_DIR)/requirements.txt
-              python3 -m safety check \
+              python3 -m pip_audit \
                 -r $(APP_DIR)/requirements.txt \
-                --output json \
-                --save-json $(APP_DIR)/safety-results.json || true
-              cat $(APP_DIR)/safety-results.json
-            displayName: Run Safety SCA scan
+                -f json \
+                -o $(APP_DIR)/pip-audit-results.json || true
+              cat $(APP_DIR)/pip-audit-results.json
+            displayName: Run pip-audit SCA scan
 
           - task: PublishBuildArtifacts@1
-            displayName: Publish Safety results
+            displayName: Publish pip-audit results
             inputs:
-              PathtoPublish: $(APP_DIR)/safety-results.json
+              PathtoPublish: $(APP_DIR)/pip-audit-results.json
               ArtifactName: sca-results
             condition: always()
 
