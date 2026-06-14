@@ -1,19 +1,8 @@
----
-# Federated credential wiring for external-secrets operator.
-# The corresponding Azure resources (managed identity + federated credential)
-# are created outside this repo (e.g. via Terraform az_federated_identity_credential).
+# external-secrets SA is owned by the Helm chart — annotations are passed
+# via the ArgoCD Application parameters in argocd/apps/external-secrets.yaml.
 #
-# Replace ${...} placeholders with real values before applying.
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: external-secrets
-  namespace: external-secrets
-  annotations:
-    azure.workload.identity/client-id: "c74adc3c-5487-4c74-8c70-4f1cb2a64193"
-    azure.workload.identity/tenant-id: "e2e605ca-a105-4b19-bcb9-5b1ca2d5ce71"
-  labels:
-    azure.workload.identity/use: "true"
+# cert-manager SA will be added here once its workload identity is provisioned
+# via Terraform (CERT_MANAGER_WORKLOAD_IDENTITY_CLIENT_ID placeholder below).
 ---
 apiVersion: v1
 kind: ServiceAccount
