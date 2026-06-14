@@ -1,3 +1,101 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ansible-playbooks
+  namespace: default
+data:
+  setup-ado-agents.yml: |
+    ---
+    - name: Provision self-hosted Azure DevOps agents
+      hosts: all
+      become: true
+      roles:
+        - node-baseline
+        - ado-agent
+
+  node-baseline.yml: |
+    ---
+    - name: Configure public DNS via resolvectl on primary interface
+      ansible.builtin.shell: |
+        IFACE=$(ip route show default | awk '/default/ {print $5; exit}')
+        resolvectl dns "$IFACE" 8.8.8.8 8.8.4.4
+        resolvectl domain "$IFACE" "~."
+      args:
+        executable: /bin/bash
+
+    - name: Update apt cache and upgrade packages
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: safe
+
+    - name: Install baseline packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - git
+          - jq
+          - unzip
+          - apt-transport-https
+          - ca-certificates
+        state: present
+
+    - name: Disable swap
+      ansible.builtin.command: swapoff -a
+      when: ansible_swaptotal_mb > 0
+
+    - name: Remove swap from fstab
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: '^\S+\s+\S+\s+swap\s+'
+        state: absent
+
+  ado-agent.yml: |
+    ---
+    - name: Create agent directory
+      ansible.builtin.file:
+        path: /opt/azure-agent
+        state: directory
+        owner: azureuser
+        mode: "0755"
+
+    - name: Copy ADO agent tarball from controller to VM
+      ansible.builtin.copy:
+        src: /tmp/vsts-agent.tar.gz
+        dest: /tmp/vsts-agent.tar.gz
+        mode: "0644"
+
+    - name: Extract agent
+      ansible.builtin.unarchive:
+        src: /tmp/vsts-agent.tar.gz
+        dest: /opt/azure-agent
+        remote_src: true
+
+    - name: Configure agent
+      ansible.builtin.command:
+        cmd: >
+          ./config.sh --unattended
+          --url https://dev.azure.com/anoopkum
+          --auth PAT
+          --token {{ ado_pat }}
+          --pool self-hosted-linux
+          --agent {{ inventory_hostname }}
+          --replace
+        chdir: /opt/azure-agent
+      become: false
+      no_log: true
+
+    - name: Install agent as systemd service
+      ansible.builtin.command:
+        cmd: ./svc.sh install azureuser
+        chdir: /opt/azure-agent
+
+    - name: Start agent service
+      ansible.builtin.command:
+        cmd: ./svc.sh start
+        chdir: /opt/azure-agent
+
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -14,20 +112,27 @@ spec:
           secret:
             secretName: ansible-ssh-key
             defaultMode: 0400
-        - name: ansible-code
+        - name: playbooks
+          configMap:
+            name: ansible-playbooks
+        - name: ansible-work
           emptyDir: {}
       initContainers:
-        - name: copy-ansible
-          image: alpine/git:latest
+        - name: setup-dirs
+          image: busybox:latest
           command:
             - sh
             - -c
             - |
-              git clone https://github.com/anoopkum/azure-platform-engineering.git /workspace && \
-              cp -r /workspace/ansible /ansible-src
+              mkdir -p /work/playbooks /work/roles/node-baseline/tasks /work/roles/ado-agent/tasks && \
+              cp /cm/setup-ado-agents.yml /work/playbooks/setup-ado-agents.yml && \
+              cp /cm/node-baseline.yml /work/roles/node-baseline/tasks/main.yml && \
+              cp /cm/ado-agent.yml /work/roles/ado-agent/tasks/main.yml
           volumeMounts:
-            - name: ansible-code
-              mountPath: /ansible-src
+            - name: playbooks
+              mountPath: /cm
+            - name: ansible-work
+              mountPath: /work
       containers:
         - name: ansible
           image: cytopia/ansible:latest-tools
@@ -35,8 +140,19 @@ spec:
             - sh
             - -c
             - |
+              echo "Getting ADO agent download URL from ADO API..."
+              AUTH=$(python3 -c "import base64,os; print('Basic ' + base64.b64encode((':' + os.environ['ADO_PAT']).encode()).decode())")
+              DOWNLOAD_URL=$(wget -q -O- \
+                --header="Authorization: $AUTH" \
+                "https://dev.azure.com/anoopkum/_apis/distributedtask/packages/agent?platform=linux-x64&top=1&api-version=7.1" \
+                | python3 -c "import json,sys; d=json.load(sys.stdin); v=d['value'][0]; print(v.get('downloadUrl') or v['files'][0]['contentUrl'])")
+              echo "Downloading from: $DOWNLOAD_URL"
+              wget -q -O /tmp/vsts-agent.tar.gz "$DOWNLOAD_URL" \
+                || { echo "Download failed"; exit 1; }
+              ls -lh /tmp/vsts-agent.tar.gz
+              echo "Download complete, running playbook..."
               ansible-playbook \
-                -i /ansible/inventory/hosts.ini \
+                -i "10.0.2.4,10.0.2.5," \
                 /ansible/playbooks/setup-ado-agents.yml \
                 -e "ado_pat=$ADO_PAT" \
                 --ssh-extra-args='-o StrictHostKeyChecking=no'
@@ -50,8 +166,10 @@ spec:
               value: "False"
             - name: ANSIBLE_REMOTE_USER
               value: azureuser
+            - name: ANSIBLE_ROLES_PATH
+              value: /ansible/roles
           volumeMounts:
             - name: ssh-key
               mountPath: /root/.ssh
-            - name: ansible-code
+            - name: ansible-work
               mountPath: /ansible
