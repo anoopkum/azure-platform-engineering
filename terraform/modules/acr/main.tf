@@ -5,6 +5,8 @@ resource "azurerm_container_registry" "acr" {
   sku                 = var.sku
   admin_enabled       = false
   tags                = var.tags
+
+  lifecycle { ignore_changes = [tags] }
 }
 
 resource "azurerm_role_assignment" "aks_acr_pull" {

@@ -2,6 +2,8 @@ resource "azurerm_resource_group" "rg" {
   name     = var.resource_group_name
   location = var.location
   tags     = var.tags
+
+  lifecycle { ignore_changes = [tags] }
 }
 
 resource "azurerm_virtual_network" "vnet" {
@@ -10,6 +12,8 @@ resource "azurerm_virtual_network" "vnet" {
   resource_group_name = azurerm_resource_group.rg.name
   address_space       = var.vnet_address_space
   tags                = var.tags
+
+  lifecycle { ignore_changes = [tags] }
 }
 
 resource "azurerm_subnet" "aks_subnet" {

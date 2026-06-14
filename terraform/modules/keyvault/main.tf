@@ -10,6 +10,8 @@ resource "azurerm_key_vault" "kv" {
   purge_protection_enabled   = false
   rbac_authorization_enabled = true
   tags                       = var.tags
+
+  lifecycle { ignore_changes = [tags] }
 }
 
 resource "azurerm_role_assignment" "kv_secrets_officer" {

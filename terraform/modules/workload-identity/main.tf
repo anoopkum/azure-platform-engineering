@@ -3,6 +3,8 @@ resource "azurerm_user_assigned_identity" "identity" {
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
+
+  lifecycle { ignore_changes = [tags] }
 }
 
 resource "azurerm_federated_identity_credential" "identity" {
