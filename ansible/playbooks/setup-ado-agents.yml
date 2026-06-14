@@ -1,6 +1,6 @@
 ---
 - name: Provision self-hosted Azure DevOps agents
-  hosts: ado_agents
+  hosts: all
   become: true
   # ado_pat must be passed via --extra-vars or as env var ADO_PAT
   # Non-interactive: ansible-playbook ... -e "ado_pat=$ADO_PAT"
