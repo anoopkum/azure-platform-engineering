@@ -65,7 +65,7 @@ stages:
           - task: AzureCLI@2
             displayName: Terraform Init & Plan
             inputs:
-              azureSubscription: azure-service-connection
+              azureSubscription: azure-connection
               scriptType: bash
               scriptLocation: inlineScript
               addSpnToEnvironment: true
@@ -114,7 +114,7 @@ stages:
                 - task: AzureCLI@2
                   displayName: Terraform Apply
                   inputs:
-                    azureSubscription: azure-service-connection
+                    azureSubscription: azure-connection
                     scriptType: bash
                     scriptLocation: inlineScript
                     addSpnToEnvironment: true
