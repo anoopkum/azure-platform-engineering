@@ -13,8 +13,8 @@ resource "azurerm_virtual_network" "vnet" {
   address_space       = var.vnet_address_space
   # Azure default DNS (168.63.129.16) cannot resolve external CDN/TrafficManager chains.
   # Use public resolvers so VMSS agents can download packages from the internet.
-  dns_servers         = ["8.8.8.8", "8.8.4.4"]
-  tags                = var.tags
+  dns_servers = ["8.8.8.8", "8.8.4.4"]
+  tags        = var.tags
 
   lifecycle { ignore_changes = [tags] }
 }
