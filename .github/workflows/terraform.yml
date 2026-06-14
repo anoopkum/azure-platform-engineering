@@ -40,18 +40,19 @@ jobs:
         with:
           fetch-depth: 0
 
+      # On pull_request, skip if no terraform/ files changed (required checks still run).
+      # On push/workflow_dispatch, always run (push is already path-filtered at trigger level).
       - name: Detect Terraform changes
         id: tf_changed
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            DIFF=$(git diff --name-only origin/main...HEAD)
+            if git diff --name-only origin/main...HEAD | grep -q '^terraform/'; then
+              echo "changed=true" >> $GITHUB_OUTPUT
+            else
+              echo "changed=false" >> $GITHUB_OUTPUT
+            fi
           else
-            DIFF=$(git diff --name-only HEAD~1..HEAD)
-          fi
-          if echo "$DIFF" | grep -q '^terraform/'; then
             echo "changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Setup Terraform
@@ -89,14 +90,13 @@ jobs:
         id: tf_changed
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            DIFF=$(git diff --name-only origin/main...HEAD)
+            if git diff --name-only origin/main...HEAD | grep -q '^terraform/'; then
+              echo "changed=true" >> $GITHUB_OUTPUT
+            else
+              echo "changed=false" >> $GITHUB_OUTPUT
+            fi
           else
-            DIFF=$(git diff --name-only HEAD~1..HEAD)
-          fi
-          if echo "$DIFF" | grep -q '^terraform/'; then
             echo "changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Setup Terraform
@@ -160,47 +160,29 @@ jobs:
     environment: ${{ inputs.environment || 'dev' }}
     steps:
       - uses: actions/checkout@v4.2.2
-        with:
-          fetch-depth: 2
-
-      - name: Detect Terraform changes
-        id: tf_changed
-        run: |
-          if echo "${{ github.event_name }}" | grep -q 'workflow_dispatch'; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-          elif git diff --name-only HEAD~1..HEAD | grep -q '^terraform/'; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
-          fi
 
       - name: Setup Terraform
-        if: steps.tf_changed.outputs.changed == 'true'
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Download plan artifact
-        if: steps.tf_changed.outputs.changed == 'true'
         uses: actions/download-artifact@v4
         with:
           name: tfplan-${{ inputs.environment || 'dev' }}
           path: ${{ env.WORKING_DIR }}
 
       - name: Terraform Init
-        if: steps.tf_changed.outputs.changed == 'true'
         run: |
           terraform init \
             -backend-config="envs/${{ inputs.environment || 'dev' }}/backend.conf"
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Terraform Apply
-        if: steps.tf_changed.outputs.changed == 'true'
         run: terraform apply -auto-approve tfplan
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Read Terraform outputs
-        if: steps.tf_changed.outputs.changed == 'true'
         id: tf_outputs
         run: |
           echo "keyvault_name=$(terraform output -raw key_vault_name)" >> $GITHUB_OUTPUT
@@ -208,7 +190,6 @@ jobs:
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Azure Login
-        if: steps.tf_changed.outputs.changed == 'true'
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -216,7 +197,6 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Get AKS credentials
-        if: steps.tf_changed.outputs.changed == 'true'
         run: |
           az aks get-credentials \
             --name ${{ secrets.AKS_CLUSTER_NAME }} \
@@ -224,7 +204,6 @@ jobs:
             --overwrite-existing
 
       - name: Apply secret-store manifest
-        if: steps.tf_changed.outputs.changed == 'true'
         run: |
           sed \
             -e "s|\${KEYVAULT_NAME}|${{ steps.tf_outputs.outputs.keyvault_name }}|g" \
