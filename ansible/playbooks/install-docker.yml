@@ -1,0 +1,6 @@
+---
+- name: Install Docker on ADO agent VMs
+  hosts: all
+  become: true
+  roles:
+    - docker
