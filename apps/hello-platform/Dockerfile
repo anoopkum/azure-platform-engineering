@@ -13,5 +13,5 @@ COPY app/ ./app/
 USER appuser
 
 EXPOSE 8080
-
+# Start the application using Gunicorn with 2 workers and a timeout of 30 seconds
 CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "30", "app.main:app"]

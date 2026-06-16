@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh pr create --title 'feat: ArgoCD bootstrap, app-of-apps, Node.js 24 CI fix' --body ' *)",
+      "Bash(kubectl apply *)",
+      "Bash(argocd app *)",
+      "Bash(kubectl get *)",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\({k:v for k,v in d.items\\(\\) if 'workload' in k or 'azure' in k}\\)\")",
+      "Bash(helm show *)",
+      "Bash(helm repo *)",
+      "Bash(kubectl describe *)",
+      "Bash(kubectl delete *)",
+      "Bash(gunzip)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('config',{}\\), indent=2\\)\\)\")",
+      "Bash(grep -A 10 \"name: external-secrets$\")",
+      "Bash(python3 -c \"import sys,json; sa=json.load\\(sys.stdin\\); print\\(json.dumps\\(sa['metadata'], indent=2\\)\\)\")",
+      "Bash(grep -B2 -A5 \"name: es-external-secrets$\")",
+      "Bash(helm pull *)",
+      "Read(//tmp/es-chart/external-secrets/templates/**)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d['spec']['source']['helm'], indent=2\\)\\)\")",
+      "Bash(cat ~/.ssh/id_rsa.pub 2>/dev/null || echo \"NO_KEY\")",
+      "Read(//Users/anoo4413/.ssh/**)",
+      "Bash(git commit -m ' *)",
+      "Bash(gh pr create --base main --head dev --title 'fix\\(ci\\): detect Terraform changes correctly on push vs PR events' --body ' *)",
+      "Bash(gh pr *)",
+      "Bash(gh workflow *)",
+      "Bash(cat > *)",
+      "Bash(kubectl logs *)",
+      "Bash(az network *)",
+      "Bash(git fetch *)",
+      "Bash(git checkout *)",
+      "Bash(git pull *)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
+    ]
+  }
+}
