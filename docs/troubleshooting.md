@@ -388,6 +388,25 @@ kubectl apply -f argocd/bootstrap/app-of-apps.yaml
 
 ---
 
+### `CrashLoopBackOff` — gunicorn `No usable temporary directory found`
+```
+FileNotFoundError: [Errno 2] No usable temporary directory found in ['/tmp', '/var/tmp', '/usr/tmp', '/app']
+```
+**Cause:** The Helm deployment template has `readOnlyRootFilesystem: true` in the container securityContext. Gunicorn spawns worker processes and creates temp files in `/tmp` — with a read-only root filesystem this write is blocked, causing every worker to crash immediately.
+**Fix:** Mount an `emptyDir` volume at `/tmp` in the Helm deployment template. This gives gunicorn a writable scratch space without relaxing the read-only root constraint:
+```yaml
+# In deployment.yaml — inside the container spec:
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+# At the pod spec level (same indentation as containers:):
+      volumes:
+        - name: tmp
+          emptyDir: {}
+```
+
+---
+
 ### Nodes stuck in `NotReady` after upgrade
 **Cause:** A node upgrade left a node cordoned. Verify with `kubectl get nodes`.
 **Fix:**
@@ -696,7 +715,158 @@ If the cluster uses a private egress (UDR / Azure Firewall), ensure `packages.mi
 
 ---
 
-## Azure DevOps Pipelines
+## Azure DevOps Pipelines — hello-platform CI
+
+### `pip3: command not found` (exit 127) on self-hosted agent
+```
+/usr/bin/bash: pip3: command not found
+##[error]Bash exited with code 127.
+```
+**Cause:** Ubuntu 22.04 does not ship `pip3` by default. The agent VM was provisioned without it.
+**Fix:** Install via SSH helper pod from inside the cluster:
+```bash
+kubectl run ssh-helper --image=alpine --restart=Never \
+  --overrides='{"spec":{"volumes":[{"name":"key","secret":{"secretName":"ansible-ssh-key"}}],"containers":[{"name":"ssh-helper","image":"alpine","command":["sleep","3600"],"volumeMounts":[{"name":"key","mountPath":"/key"}]}]}}' -- sleep 3600
+
+kubectl exec -it ssh-helper -- sh
+apk add openssh-client
+chmod 600 /key/id_rsa
+ssh -i /key/id_rsa -o StrictHostKeyChecking=no azureuser@<agent-ip> \
+  "sudo apt-get install -y python3-pip"
+```
+Then re-run the pipeline.
+
+---
+
+### `bandit: command not found` / `pip_audit: command not found` (PATH issue)
+```
+/usr/bin/bash: bandit: command not found
+##[error]Bash exited with code 127.
+```
+**Cause:** `pip3 install bandit` installs to `~/.local/bin` which is not in the agent's non-interactive shell `PATH`.
+**Fix:** Use module invocation instead of relying on PATH:
+```yaml
+python3 -m bandit -r $(APP_DIR)/app/ ...
+python3 -m pip_audit -r $(APP_DIR)/requirements.txt ...
+```
+
+---
+
+### `safety` AttributeError — `typer.rich_utils` incompatible
+```
+AttributeError: module 'typer.rich_utils' has no attribute 'STYLE_ERRORS_PANEL_BORDER'
+```
+**Cause:** `safety 3.2.3` is incompatible with Python 3.10 on the agent.
+**Fix:** Replace `safety` with `pip-audit` — it's actively maintained and has no such incompatibility:
+```
+# requirements-dev.txt
+pip-audit==2.7.3
+```
+Update the pipeline SCA step to use `python3 -m pip_audit`.
+
+---
+
+### `az: command not found` on self-hosted agent
+```
+/usr/bin/bash: az: command not found
+##[error]Bash exited with code 127.
+```
+**Cause:** Azure CLI is not installed on the agent VM.
+**Fix:** Install via SSH helper pod:
+```bash
+ssh -i /key/id_rsa azureuser@<agent-ip> \
+  "curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash"
+```
+
+---
+
+### `docker: permission denied` on `/var/run/docker.sock`
+```
+permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock
+```
+**Cause:** The ADO agent service runs as root, but `azureuser` (the shell user) is not active in the `docker` group for the current session even after `usermod -aG docker azureuser`.
+**Fix:** Set socket permissions so the agent can access it without a group session reload:
+```bash
+sudo chmod 666 /var/run/docker.sock
+```
+This is applied via the Docker Ansible role on agent provisioning.
+
+---
+
+### Trivy install fails — permission denied on `/usr/local/bin`
+```
+install: cannot create regular file '/usr/local/bin/trivy': Permission denied
+```
+**Cause:** The default Trivy install script writes to `/usr/local/bin` which requires root. The agent runs as `azureuser`.
+**Fix:** Install to `$HOME/bin` instead and add it to PATH in the same step:
+```yaml
+- script: |
+    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+      | sh -s -- -b $HOME/bin
+    export PATH=$HOME/bin:$PATH
+    trivy image ...
+```
+
+---
+
+### Trivy fails on unfixable OS CVEs — `exit code 1`
+```
+CRITICAL  perl-base         fix: none
+HIGH      libsqlite3-0      fix: none
+HIGH      ncurses-base      fix: none
+##[error]Bash exited with code 1.
+```
+**Cause:** `python:3.12-slim` (Debian-based) has known CVEs in OS packages where the upstream vendor has not released a fix (`fix: none`). These are unfixable at the application level — switching to `slim-bookworm` has the same CVEs.
+**Fix:** Add `--ignore-unfixed` so Trivy only fails on CVEs that have an available fix:
+```yaml
+trivy image \
+  --exit-code 1 \
+  --severity CRITICAL,HIGH \
+  --ignore-unfixed \
+  ...
+```
+
+---
+
+### `CI disabled` banner on ADO pipeline
+**Cause:** A pipeline created via the REST API (`build/definitions`) does not automatically register a GitHub webhook trigger. ADO shows a "CI disabled" banner.
+**Fix:** In ADO → Edit pipeline → Triggers tab → uncheck **"Override YAML CI trigger"** → Save. GitHub webhook is registered automatically.
+
+---
+
+### `No pool was specified` when queueing build via API
+**Cause:** A pipeline created via REST API has no default agent pool set.
+**Fix:** Update the pipeline definition via PUT to include the pool:
+```bash
+curl -s -X PUT \
+  -H "Authorization: Basic $AUTH" \
+  -H "Content-Type: application/json" \
+  -d '{"queue":{"id":<pool-id>},...}' \
+  "https://dev.azure.com/<org>/<project>/_apis/build/definitions/<id>?api-version=7.1"
+```
+
+---
+
+### Stage 4 fails — `GH006: Protected branch update failed`
+```
+remote: error: GH006: Protected branch update failed for refs/heads/main.
+remote: - Changes must be made through a pull request.
+error: failed to push some refs to 'https://github.com/...'
+##[error]Bash exited with code 1.
+```
+**Cause:** GitHub branch protection on `main` blocks direct pushes. Stage 4 commits the image tag update and pushes directly to `main`, which is rejected. The "Allow specified actors to bypass" option requires GitHub Team/Enterprise plan — not available on personal/free repos.
+**Workaround:** With `imagePullPolicy: Always` and `tag: latest` in `values.yaml`, the latest ACR image is always pulled on pod restart. Stage 4 tag writeback is optional for traceability. Long-term fix: push tag updates to an unprotected `gitops/hello-platform` branch and point ArgoCD at that branch.
+
+---
+
+### ADO environment `dev` — first-time permission prompt blocks Stage 4
+```
+This pipeline needs permission to access a resource before this run can continue.
+```
+**Cause:** ADO requires explicit one-time permission for a pipeline to access an environment. Auto-created environments on first use show this prompt.
+**Fix:** In the ADO pipeline run UI, click **"View"** → **"Permit"**. All future runs proceed without prompting.
+
+---
 
 ### Pipeline fails with `No hosted parallelism has been purchased`
 ```

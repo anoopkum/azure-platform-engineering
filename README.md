@@ -4,10 +4,10 @@ A production-grade Platform Engineering reference implementation on Azure, cover
 
 - **AKS** — multi-node-pool Kubernetes cluster with Availability Zones, Azure CNI, RBAC
 - **Terraform** — modular IaC for AKS, ACR, networking, Log Analytics
-- **ArgoCD** — App-of-Apps GitOps pattern deploying ingress-nginx, cert-manager, external-secrets
-- **Ansible** — self-hosted ADO agent provisioning, node baseline, ArgoCD CLI install
-- **CI/CD** — GitHub Actions + Azure DevOps pipelines for Terraform and ArgoCD sync
-- **Scripts** — cluster bootstrap, node drain, secret rotation, health check (Bash + Python)
+- **ArgoCD** — App-of-Apps GitOps pattern deploying ingress-nginx, cert-manager, workload apps
+- **Ansible** — self-hosted ADO agent provisioning, node baseline, Docker install
+- **CI/CD** — GitHub Actions (Terraform) + Azure DevOps Pipelines (app CI) + ArgoCD (CD)
+- **hello-platform** — Python/Flask reference app with full security scanning pipeline
 
 ## Repository Structure
 
@@ -19,33 +19,49 @@ azure-platform-engineering/
 │   ├── outputs.tf
 │   ├── modules/
 │   │   ├── aks/                   # AKS cluster + node pools + diagnostics
-│   │   ├── networking/            # VNet, subnets, resource group
+│   │   ├── networking/            # VNet, subnets, NAT gateway, resource group
 │   │   └── acr/                   # Container registry + AcrPull role
 │   └── envs/
 │       ├── dev/terraform.tfvars
 │       └── prod/terraform.tfvars
+├── apps/
+│   └── hello-platform/
+│       ├── app/main.py            # Flask app — /, /health, /ready endpoints
+│       ├── Dockerfile             # python:3.12-slim, non-root UID 1001, gunicorn
+│       ├── requirements.txt
+│       ├── requirements-dev.txt   # pytest, bandit, pip-audit
+│       ├── tests/
+│       └── helm/                  # Helm chart — Deployment, Service, Ingress, Certificate
 ├── argocd/
 │   ├── bootstrap/                 # namespace, install script, app-of-apps manifest
-│   └── apps/                      # ArgoCD Application manifests (nginx, cert-manager, ESO)
+│   └── apps/                      # ArgoCD Application manifests
+│       └── hello-platform.yaml    # Auto-sync, prune, selfHeal
 ├── ansible/
-│   ├── playbooks/                 # setup-ado-agents, setup-argocd-cli, baseline-nodes
+│   ├── playbooks/                 # setup-ado-agents, install-docker
 │   ├── roles/
 │   │   ├── ado-agent/             # Download, configure, start ADO agent as systemd service
-│   │   ├── argocd-cli/            # Install ArgoCD CLI binary
+│   │   ├── docker/                # Install Docker CE, add azureuser to docker group
 │   │   └── node-baseline/         # Package updates, sysctl, swap disable
 │   ├── inventory/hosts.ini
 │   └── group_vars/all.yml
+├── azure-pipelines/
+│   ├── hello-platform.yml         # 4-stage app CI: UnitTest → SAST → SCA → BuildAndScan
+│   └── terraform-pipeline.yml     # Multi-stage Terraform: Validate → Plan → Apply
+├── kubernetes/
+│   └── manifests/
+│       ├── selfsigned-issuer.yaml # Self-signed CA issuer chain for dev TLS
+│       └── ansible/               # K8s Job for Ansible-based agent provisioning
 ├── scripts/
 │   ├── bootstrap-cluster.sh       # Get AKS creds → deploy ArgoCD → apply app-of-apps
 │   ├── aks-node-drain.sh          # Safe cordon + drain with grace period
 │   ├── rotate-secrets.sh          # Rotate Key Vault secret + trigger ESO refresh
 │   └── health-check.py            # Check all nodes Ready + all deployments available
 ├── .github/workflows/
-│   ├── terraform.yml              # Validate → Plan → Apply with OIDC auth
-│   └── argocd-sync.yml            # Sync ArgoCD on argocd/** changes
-└── azure-pipelines/
-    ├── terraform-pipeline.yml     # Multi-stage ADO pipeline with self-hosted agents
-    └── agent-setup.yml            # Ansible-driven self-hosted agent provisioning
+│   └── terraform.yml              # Validate → Plan → Apply with OIDC auth
+└── docs/
+    ├── architecture.md
+    ├── runbooks.md
+    └── troubleshooting.md
 ```
 
 ## Quick Start
@@ -54,7 +70,7 @@ azure-platform-engineering/
 
 ```bash
 cd terraform
-terraform init
+terraform init -backend-config="envs/dev/backend.conf"
 terraform plan -var-file=envs/dev/terraform.tfvars -out=tfplan
 terraform apply tfplan
 ```
@@ -68,14 +84,45 @@ terraform apply tfplan
 ### 3. Provision Self-Hosted ADO Agents
 
 ```bash
-ansible-playbook -i ansible/inventory/hosts.ini \
-  ansible/playbooks/setup-ado-agents.yml
+kubectl apply -f kubernetes/manifests/ansible/ansible-job.yaml
 ```
 
-### 4. Cluster Health Check
+### 4. Apply cert-manager Self-Signed Issuer (dev TLS)
+
+```bash
+kubectl apply -f kubernetes/manifests/selfsigned-issuer.yaml
+```
+
+### 5. Cluster Health Check
 
 ```bash
 python3 scripts/health-check.py
+```
+
+### 6. Access hello-platform (dev)
+
+Add to `/etc/hosts`:
+```
+20.77.137.230 hello-platform.dev.local
+```
+Then open `https://hello-platform.dev.local` in your browser (accept the self-signed cert warning).
+
+## CI/CD Flow
+
+```
+Code push to GitHub
+        │
+        ├─► GitHub Actions (terraform/** changes)
+        │       Validate → Plan → Apply (OIDC auth)
+        │
+        └─► ADO Pipeline (apps/hello-platform/** changes)
+                Stage 1: Unit Tests + coverage (pytest, >80% required)
+                Stage 2: SAST (bandit) + SCA (pip-audit) — parallel
+                Stage 3: Docker build → Trivy scan (--ignore-unfixed) → ACR push
+                Stage 4: Patch image tag in values.yaml → git push
+                                │
+                                └─► ArgoCD detects values.yaml change
+                                        Auto-sync → Helm render → AKS deploy
 ```
 
 ## Required GitHub Secrets
@@ -85,14 +132,11 @@ python3 scripts/health-check.py
 | `AZURE_CLIENT_ID` | Managed Identity / App client ID (OIDC) |
 | `AZURE_TENANT_ID` | Azure AD tenant ID |
 | `AZURE_SUBSCRIPTION_ID` | Target subscription |
-| `AKS_CLUSTER_NAME` | AKS cluster name |
-| `AKS_RESOURCE_GROUP` | AKS resource group |
-| `ARGOCD_SERVER` | ArgoCD server hostname |
-| `ARGOCD_TOKEN` | ArgoCD API token |
 
-## Required Azure DevOps Variables
+## Required Azure DevOps Variables / Service Connections
 
-| Variable | Description |
-|---|---|
-| `ADO_PAT` | Personal Access Token for agent registration |
-| `KEYVAULT_NAME` | Key Vault holding the Ansible SSH key |
+| Name | Type | Description |
+|---|---|---|
+| `azure-connection` | Service connection | Azure Resource Manager (OIDC) for ACR login |
+| `ADO_PAT` | Secret variable | PAT for agent registration |
+| `KEYVAULT_NAME` | Variable | Key Vault holding the Ansible SSH key |
